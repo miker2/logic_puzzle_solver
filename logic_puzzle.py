@@ -1,19 +1,30 @@
 import itertools
 import logging
 import networkx as nx
+import pprint
 
 logger = logging.getLogger(__name__)
 
 class LogicPuzzle:
     def __init__(self, categories):
+        # Check that all categories have the same number of items:
+        assert len(set([len(v) for v in categories.values()])) == 1, "All categories must have the same number of items."
+
         self._items = categories
         self._all_items = []
-        for v in categories.values():
+        self._answers = {}  # This will duplicate a lot of info, but we can come up with a more efficient way later.
+        for k, v in categories.items():
             self._all_items += v
-        
+
+            cat_minus_k = set(categories.keys()).difference([k])
+            for item in v:
+                self._answers[item] = {e : None for e in cat_minus_k}
+
+        # pprint.pprint(self._answers)
+
         self._G = nx.Graph()
         for k, v in categories.items():
-            self._G.add_nodes_from(v, label=k)
+            self._G.add_nodes_from(v, category=k)
         
         # Add edges
         lists = [v for v in categories.values()]
@@ -102,6 +113,15 @@ class LogicPuzzle:
         adj = self.neighbors_by_type(node)
         return { k : len(v) for k,v in adj.items()}
 
+    def add_comparative_relationship(self, lesser, greater):
+        # This is a first-class citizen of the puzzle because we'll need to collect information
+        # across multiple clues for some of the solution logic, e.g.
+        #  a < b
+        #  b < c
+        #  therefore a < c
+        #  and a != b , b != c & a != c
+        pass
+
     def _has_one_edge(self, node, category):
         # print(f"Checking edge count on {node} of type '{category}'")
         count = self.count_edges_per_type(node)
@@ -147,10 +167,16 @@ class LogicPuzzle:
         # print(f"'{type2}' node: {node2}, not node: {not_node2}")
         for n in not_node2:
             self.mark_false(n, node1)
+        # Fill in the answer info
+        self._answers[node1][type2] = node2
+        self._answers[node2][type1] = node1
 
 
 # A collection of logical blocks often found in a logic puzzle:
-def either_or(graph, obj, pair):
+def neither_nor(puzzle, obj, pair):
+    pass
+
+def either_or(puzzle, obj, pair):
     # Example:
     #   node1 == (node2 ^ node3)
     # If node1 only has the node2 edge, then it can't have the node3 edge
@@ -162,72 +188,136 @@ def either_or(graph, obj, pair):
     #   node2 belongs to node1. All other edges of type(node2) can be removed
 
     assert len(pair) == 2
-    obj_adj = graph.neighbors_by_type(obj)
-    obj_type = graph._category(obj)
+    obj_adj = puzzle.neighbors_by_type(obj)
+    obj_type = puzzle._category(obj)
     p1, p2 = pair
-    p1_adj = graph.neighbors_by_type(p1)
-    p1_type = graph._category(p1)
-    p2_adj = graph.neighbors_by_type(p2)
-    p2_type = graph._category(p2)
+    p1_adj = puzzle.neighbors_by_type(p1)
+    p1_type = puzzle._category(p1)
+    p2_adj = puzzle.neighbors_by_type(p2)
+    p2_type = puzzle._category(p2)
+    puzzle.mark_false(p1, p2)
     
     # Check if p1 is a neighbor of obj. If not, then p2 belongs to obj.
     # Remove all edges that are not p2 of type(p2) from obj
     if p1 not in obj_adj[p1_type]:
         print(f"+ {p1} not in neighbors of {obj} -> {obj} belongs to {p2}")
-        graph.mark_true(obj, p2)
+        puzzle.mark_true(obj, p2)
     # Check if p2 is a neighbor of obj. If not, then p1 belongs to obj.
     # Remove all edges that are not p1 of type(p1) from obj
     if p2 not in obj_adj[p2_type]:
         print(f"+ {p2} not in neighbors of {obj} -> {obj} belongs to {p1}")
-        graph.mark_true(obj, p1)
+        puzzle.mark_true(obj, p1)
 
     ## TODO: There's a bug here if p1_type and p2_type are the same!
-    # # Check if obj has one edge of type(p1) and is p1
-    # obj_p1_type_neighbors = obj_adj[p1_type]
-    # if len(obj_p1_type_neighbors) == 1 and p1 in obj_p1_type_neighbors:
-    #     print(f"++ {obj} has 1 '{p1_type}' neighbor ({obj_p1_type_neighbors}) -> {obj} eliminated from {p2}")
-    #     graph.mark_false(obj, p2)
-    # # Check if obj has one edge of type(p2) and is p2
-    # obj_p2_type_neighbors = obj_adj[p2_type]
-    # if len(obj_p2_type_neighbors) == 1 and p1 in obj_p2_type_neighbors:
-    #     print(f"++ {obj} has 1 '{p2_type}' neighbor ({obj_p2_type_neighbors}) -> {obj} eliminated from {p1}")
-    #     graph.mark_false(obj, p1)
+    if p1_type != p2_type:
+        # Check if obj has one edge of type(p1) and is p1
+        obj_p1_type_neighbors = obj_adj[p1_type]
+        if len(obj_p1_type_neighbors) == 1 and p1 in obj_p1_type_neighbors:
+            print(f"++ {obj} has 1 '{p1_type}' neighbor ({obj_p1_type_neighbors}) -> {obj} eliminated from {p2}")
+            puzzle.mark_false(obj, p2)
+        # Check if obj has one edge of type(p2) and is p2
+        obj_p2_type_neighbors = obj_adj[p2_type]
+        if len(obj_p2_type_neighbors) == 1 and p1 in obj_p2_type_neighbors:
+            print(f"++ {obj} has 1 '{p2_type}' neighbor ({obj_p2_type_neighbors}) -> {obj} eliminated from {p1}")
+            puzzle.mark_false(obj, p1)
 
     # if p1 has one neighbor of type(obj) and not obj, then
     #   p2 belongs to obj
     p1_neighbors = p1_adj[obj_type]
     if len(p1_neighbors) == 1 and obj not in p1_neighbors:
         print(f"+ {p1} has only one {obj_type} neighbor ({p1_neighbors}) -> {obj} belongs to {p2}")
-        graph.mark_true(obj, p2)
+        puzzle.mark_true(obj, p2)
     # if p2 has one neighbor of type(obj) and not obj, then
     #   p1 belongs to obj
     p2_neighbors = p2_adj[obj_type]
     if len(p2_neighbors) == 1 and obj not in p2_neighbors:
         print(f"+ {p2} has only one {obj_type} neighbor ({p2_neighbors}) -> {obj} belongs to {p1}")
-        graph.mark_true(obj, p1)
+        puzzle.mark_true(obj, p1)
 
-def pairs(graph, pair1, pair2):
+    def transitive_check(pair_item, other_category):
+        
+        # if pair_item 
+        pass
+
+    # TODO: Add transitive either-or checks (based on true conditions)
+    # A transitive relationship exists whenever you have a pre-existing true or false relationship
+    # on the grid for either one of the two "either/or" options, in relation to the group of the
+    # other option.
+    
+    # Check p1 in relation to category(p2), and
+    # Check p2 in relation to category(p1)
+    #
+    # If there exists a true relationship for p1 in category(p2) then obj is that value or p2
+    # If there exists a true relationship for p2 in category(p1) then obj is that value or p1
+    #  -- Mark all of obj options of the category in question as false
+    # 
+
+def pairs(puzzle, pair1, pair2):
     assert len(pair1) == 2
     assert len(pair2) == 2
     a, b = pair1
     c, d = pair2
-    graph.mark_false(a, b)
-    graph.mark_false(c, d)
-    either_or(graph, a, pair2)
-    either_or(graph, b, pair2)
-    either_or(graph, c, pair1)
-    either_or(graph, d, pair1)
+    puzzle.mark_false(a, b)
+    puzzle.mark_false(c, d)
+    either_or(puzzle, a, pair2)
+    either_or(puzzle, b, pair2)
+    either_or(puzzle, c, pair1)
+    either_or(puzzle, d, pair1)
+
+    def pair_same_type_logic(pair, p_type, other_pair):
+        # IF both items in a pair are the same type, then we know some additional
+        # information about other objects of the same type.
+        assert len(pair) == 2
+        assert len(other_pair) == 2
+        others = set(pair).symmetric_difference(puzzle._items[p_type])
+        c, d = other_pair
+        for o in others:
+            o_adj = puzzle.neighbors(o)
+            if c not in o_adj and d not in o_adj:
+                continue
+            if c not in puzzle.neighbors(o):
+                print("++ {c} not a neighbor of {o}, so {d} can't be a neighbor of {o}")
+                puzzle.mark_false(o, d)
+            elif d not in puzzle.neighbors(o):
+                print("++ {d} not a neighbor of {o}, so {c} can't be a neighbor of {o}")
+                puzzle.mark_false(o, c)
+
+    p1a_type = puzzle._category(a)
+    p1b_type = puzzle._category(b)
+    if p1a_type == p1b_type:
+        pair_same_type_logic(pair1, p1a_type, pair2)
+
+    p2c_type = puzzle._category(c)
+    p2d_type = puzzle._category(d)
+    if p2c_type == p2d_type:
+        pair_same_type_logic(pair2, p2c_type, pair1)
+
+def mutual_exclusive(puzzle, list_of_things):
+    # All of the things in the list are different
+    # Add a false relationship to any intersections of the pairs of items in the list:
+    pass
 
 
-def delta_comparison(graph, lesser, greater, delta, category):
+
+def ranking():
+    # Need to add a rule that accumulates comparative relationships and identifies
+    # Additional false relationships. E.g.
+    #   a < b
+    #   b < c
+    # We now know:
+    #   a < b < c
+    # So a != b, b != c & a != c
+    pass
+
+def delta_comparison(puzzle, lesser, greater, delta, category):
     assert delta >= 0
     logger.info(f"\n\nSIZE_DELTA({lesser=}, {greater=}, {delta=})")
-    graph.mark_false(lesser, greater)
-    numeric = graph._items[category]
-    cat_neighbors = lambda x: graph.neighbors(x, category)
+    puzzle.mark_false(lesser, greater)
+    numeric = puzzle._items[category]
+    cat_neighbors = lambda x: puzzle.neighbors(x, category)
     # lesser can't be the max size, greater can't be the min size
-    graph.mark_false(greater, min(numeric))
-    graph.mark_false(lesser, max(numeric))
+    puzzle.mark_false(greater, min(numeric))
+    puzzle.mark_false(lesser, max(numeric))
     for p in numeric:
         p_plus_delta = p + delta
         p_minus_delta = p - delta
@@ -237,25 +327,29 @@ def delta_comparison(graph, lesser, greater, delta, category):
 
         if p not in cat_neighbors(lesser) and p_plus_delta in numeric:
             logger.debug(f"+++ {p} not a neighbor of {lesser}, so {p_plus_delta} removed from {greater}")
-            graph.mark_false(greater, p_plus_delta)
+            puzzle.mark_false(greater, p_plus_delta)
         if p not in cat_neighbors(greater) and p_minus_delta in numeric:
             logger.debug(f"+++ {p} not a neighbor of {greater}, so {p_minus_delta} removed from {lesser}")
-            graph.mark_false(lesser, p_minus_delta)
+            puzzle.mark_false(lesser, p_minus_delta)
 
 
         if p < min(cat_neighbors(lesser)) + delta:
             logger.info(f"++++ {p=} < {min(cat_neighbors(lesser)) + delta=}")
-            graph.mark_false(greater, p)
+            puzzle.mark_false(greater, p)
         if p > max(cat_neighbors(greater)) - delta:
             logger.info(f"++++ {p=} > {max(cat_neighbors(greater)) - delta=}")
-            graph.mark_false(lesser, p)
+            puzzle.mark_false(lesser, p)
         if delta > 0:
             # if p - delta isn't in lesser, then p can't be in greater
             if p_minus_delta in numeric and p_minus_delta not in cat_neighbors(lesser):
                 logger.info(f"+++++ {p_minus_delta=} not in {lesser} - removing {p} from {greater}")
-                graph.mark_false(greater, p)
+                puzzle.mark_false(greater, p)
             # if p + delta isn't in greater, then p can't be in lesser
             if p_plus_delta in numeric and p_plus_delta not in cat_neighbors(greater):
                 logger.info(f"+++++ {p_plus_delta=} not in {greater} - removing {p} from {lesser}")
-                graph.mark_false(lesser, p)
+                puzzle.mark_false(lesser, p)
                 
+# Other solving methods that may or may not be covered:
+# Parallel cross elimination
+# Skewed cross elimination
+# 
