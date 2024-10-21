@@ -174,7 +174,10 @@ class LogicPuzzle:
 
 # A collection of logical blocks often found in a logic puzzle:
 def neither_nor(puzzle, obj, pair):
-    pass
+    p1, p2 = pair
+    puzzle.mark_false(obj, p1)
+    puzzle.mark_false(obj, p2)
+    puzzle.mark_false(p1, p2)
 
 def either_or(puzzle, obj, pair):
     # Example:
@@ -208,7 +211,6 @@ def either_or(puzzle, obj, pair):
         print(f"+ {p2} not in neighbors of {obj} -> {obj} belongs to {p1}")
         puzzle.mark_true(obj, p1)
 
-    ## TODO: There's a bug here if p1_type and p2_type are the same!
     if p1_type != p2_type:
         # Check if obj has one edge of type(p1) and is p1
         obj_p1_type_neighbors = obj_adj[p1_type]
@@ -234,23 +236,46 @@ def either_or(puzzle, obj, pair):
         print(f"+ {p2} has only one {obj_type} neighbor ({p2_neighbors}) -> {obj} belongs to {p1}")
         puzzle.mark_true(obj, p1)
 
-    def transitive_check(pair_item, other_category):
-        
-        # if pair_item 
-        pass
-
-    # TODO: Add transitive either-or checks (based on true conditions)
-    # A transitive relationship exists whenever you have a pre-existing true or false relationship
+    # NOTE: A transitive relationship exists whenever you have a pre-existing true or false relationship
     # on the grid for either one of the two "either/or" options, in relation to the group of the
     # other option.
-    
-    # Check p1 in relation to category(p2), and
-    # Check p2 in relation to category(p1)
-    #
+
     # If there exists a true relationship for p1 in category(p2) then obj is that value or p2
-    # If there exists a true relationship for p2 in category(p1) then obj is that value or p1
     #  -- Mark all of obj options of the category in question as false
-    # 
+    def transitive_true_propagation(pair_item, other_category, other_item):
+        # print(f"in either_or({obj=}, {pair=})")
+        # print(f"\ttransitive_true_propagation({pair_item=}, {other_category=}, {other_item=})")
+        typed_neighbors = puzzle.neighbors_by_type(pair_item)
+        # print(f"\t{typed_neighbors=}")
+        # Check if a single "edge" exists between pair_item and something in the "other_category"
+        if len(typed_neighbors[other_category]) == 1:
+            # Eliminate edges except for 'other_item' and 'typed_neighbors[other_category]' from the
+            # obj neighbor list
+            items_to_eliminate = set(puzzle._items[other_category]).symmetric_difference([other_item, typed_neighbors[other_category][0]])
+            for ite in items_to_eliminate:
+                puzzle.mark_false(obj, ite)
+
+    # obj is either p1 or p2
+    # If obj is p1, then we know that obj can't be any of the false conditions of p1 as it relates to category(p2)
+    # If obj is p2, then we know that obj can't be any of the false conditions of p2 as it relates to category(p1)
+    def transitive_false_propogation(pair_item, other_category):
+        print(f"in either_or({obj=}, {pair=})")
+        print(f"\ttransitive_false_propagation({pair_item=}, {other_category=})")
+        # Get false conditions of pair_item in relation to other_category:
+        typed_neighbors = puzzle.neighbors_by_type(pair_item)
+        print(f"neighbors of {pair_item} are: {typed_neighbors}")
+        not_items = set(puzzle._items[other_category]).symmetric_difference(typed_neighbors[other_category])
+        print(f"\t{obj} should not be {not_items}")
+        for ni in not_items:
+            puzzle.mark_false(obj, ni)
+    
+    # Only propogate relationships if the two items of the pair are in different categories 
+    if p1_type != p2_type:
+        transitive_true_propagation(p1, p2_type, p2)
+        transitive_true_propagation(p2, p1_type, p1)
+        # TODO: Something is wrong with the false logic propagation and needs further investigation
+        # transitive_false_propogation(p1, p2_type)
+        # transitive_false_propogation(p2, p1_type)
 
 def pairs(puzzle, pair1, pair2):
     assert len(pair1) == 2
@@ -276,10 +301,10 @@ def pairs(puzzle, pair1, pair2):
             if c not in o_adj and d not in o_adj:
                 continue
             if c not in puzzle.neighbors(o):
-                print("++ {c} not a neighbor of {o}, so {d} can't be a neighbor of {o}")
+                print(f"++ {c} not a neighbor of {o}, so {d} can't be a neighbor of {o}")
                 puzzle.mark_false(o, d)
             elif d not in puzzle.neighbors(o):
-                print("++ {d} not a neighbor of {o}, so {c} can't be a neighbor of {o}")
+                print(f"++ {d} not a neighbor of {o}, so {c} can't be a neighbor of {o}")
                 puzzle.mark_false(o, c)
 
     p1a_type = puzzle._category(a)
@@ -292,22 +317,12 @@ def pairs(puzzle, pair1, pair2):
     if p2c_type == p2d_type:
         pair_same_type_logic(pair2, p2c_type, pair1)
 
-def mutual_exclusive(puzzle, list_of_things):
+def mutually_exclusive(puzzle, list_of_things):
     # All of the things in the list are different
     # Add a false relationship to any intersections of the pairs of items in the list:
-    pass
-
-
-
-def ranking():
-    # Need to add a rule that accumulates comparative relationships and identifies
-    # Additional false relationships. E.g.
-    #   a < b
-    #   b < c
-    # We now know:
-    #   a < b < c
-    # So a != b, b != c & a != c
-    pass
+    pairs = itertools.combinations(list_of_things, 2)
+    for p1, p2 in pairs:
+        puzzle.mark_false(p1, p2)
 
 def delta_comparison(puzzle, lesser, greater, delta, category):
     assert delta >= 0
