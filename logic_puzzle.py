@@ -5,10 +5,50 @@ import pprint
 
 logger = logging.getLogger(__name__)
 
+class Comparison:
+    def __init__(self, greater, lesser):
+        self._greater = greater
+        self._lesser = lesser
+
+    @property
+    def greater(self):
+        return self._greater
+
+    @property
+    def lesser(self):
+        return self._lesser
+
+    def __call__(self, puzzle):
+        # If we're comparing the two values, they can't be the same item
+        puzzle.mark_false(self._lesser, self._greater)
+        # Get the values of the ordinal category
+        ordinals = puzzle._items[puzzle.ordinal_category]
+        # At the very least lesser can't be the max ordinal, greater can't be the min ordinal
+        puzzle.mark_false(self._greater, min(ordinals))
+        puzzle.mark_false(self._lesser, max(ordinals))
+        
+        # Up until now, we haven't compared lesser or greater.
+        # lambda to figure out what ordinals are neighbors of lesser and greater
+        ord_neighbors = lambda x: puzzle.neighbors(x, puzzle.ordinal_category)
+        
+        for o in ordinals:
+            # First, if 'o' is less than or equal to min(lesser), remove it from greater:
+            if o <= min(ord_neighbors(self._lesser)):
+                puzzle.mark_false(self._greater, o)
+
+            # Second, if 'o' is greater than or equal to max(greater), remove it from lesser:
+            if o >= max(ord_neighbors(self._greater)):
+                puzzle.mark_false(self._lesser, o)
+
+
 class LogicPuzzle:
-    def __init__(self, categories):
+    def __init__(self, categories, ordinal_category):
         # Check that all categories have the same number of items:
         assert len(set([len(v) for v in categories.values()])) == 1, "All categories must have the same number of items."
+        assert ordinal_category in categories.keys(), \
+                   f"{ordinal_category} not a valid category. Valid categories are: {list(categories.keys())}"
+
+        self._ordinal = ordinal_category
 
         self._items = categories
         self._all_items = []
@@ -38,9 +78,18 @@ class LogicPuzzle:
 
         self._rules = []
 
+        # Create a new graph just for greater/less than clues. We'll use this to find connected components
+        self._C = nx.Graph()
+        self._greater = {} # this dictionary will contain the bigger item as the key and the smaller as the value
+        self._lesser = {} # this dictionary will contain the smaller item as the key and the larger as the value
+
     @property
     def edge_count(self):
         return self._G.number_of_edges()
+
+    @property
+    def ordinal_category(self):
+        return self._ordinal
 
     def mark_false(self, node1, node2) -> bool:
         assert node1 in self._all_items
@@ -54,6 +103,11 @@ class LogicPuzzle:
 
     def add_rule(self, fxn):
         self._rules.append(fxn)
+
+        if isinstance(fxn, Comparison):
+            self._greater[fxn.greater] = fxn.lesser
+            self._lesser[fxn.lesser] = fxn.greater
+            self._C.add_edge(fxn.greater, fxn.lesser)
 
     def execute_rules(self):
         current_edge_count = 1e9
@@ -290,22 +344,29 @@ def pairs(puzzle, pair1, pair2):
     either_or(puzzle, d, pair1)
 
     def pair_same_type_logic(pair, p_type, other_pair):
-        # IF both items in a pair are the same type, then we know some additional
-        # information about other objects of the same type.
+        # If both items in one pair are the same type, then no other item from that type can
+        # be either object from the other pair. e.g.
+        #  If both items in 'pair' are 'p_type', then:
+        #   one is 'other_pair[0]` and the other is `other_pair[1]' 
         assert len(pair) == 2
         assert len(other_pair) == 2
         others = set(pair).symmetric_difference(puzzle._items[p_type])
+        # print(f"{pair=}, {others=}")
         c, d = other_pair
         for o in others:
+
             o_adj = puzzle.neighbors(o)
             if c not in o_adj and d not in o_adj:
                 continue
-            if c not in puzzle.neighbors(o):
-                print(f"++ {c} not a neighbor of {o}, so {d} can't be a neighbor of {o}")
-                puzzle.mark_false(o, d)
-            elif d not in puzzle.neighbors(o):
-                print(f"++ {d} not a neighbor of {o}, so {c} can't be a neighbor of {o}")
+            if o in puzzle.neighbors(c):
+                print(f"++ {pair[0]} & {pair[1]} are both {p_type}. {o} can't be {c}")
                 puzzle.mark_false(o, c)
+            if o in puzzle.neighbors(d):
+                print(f"++ {pair[0]} & {pair[1]} are both {p_type}. {o} can't be {d}")
+                puzzle.mark_false(o, d)
+            # print(f"++ {pair[0]} & {pair[1]} are both {p_type}. {o} can't be {c} or {d}")
+            # puzzle.mark_false(o, c)
+            # puzzle.mark_false(o, d)
 
     p1a_type = puzzle._category(a)
     p1b_type = puzzle._category(b)
