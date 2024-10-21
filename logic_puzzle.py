@@ -40,6 +40,63 @@ class Comparison:
             if o >= max(ord_neighbors(self._greater)):
                 puzzle.mark_false(self._lesser, o)
 
+class DeltaComparison(Comparison):
+    def __init__(self, greater, lesser, delta):
+        assert delta > 0
+        super().__init__(self, greater=greater, lesser=lesser)
+
+        self._delta = delta
+
+    @property
+    def delta(self):
+        return self._delta
+
+    def __call__(self, puzzle):
+        logger.info(f"\n\nSIZE_DELTA({self.lesser=}, {self.greater=}, {self.delta=})")
+        # If we're comparing the two values, they can't be the same item
+        puzzle.mark_false(self._lesser, self._greater)
+        # Get the values of the ordinal category
+        ordinals = puzzle._items[puzzle.ordinal_category]
+        # At the very least lesser can't be the max ordinal, greater can't be the min ordinal
+        puzzle.mark_false(self._greater, min(ordinals))
+        puzzle.mark_false(self._lesser, max(ordinals))
+        
+        # Up until now, we haven't compared lesser or greater.
+        # lambda to figure out what ordinals are neighbors of lesser and greater
+        ord_neighbors = lambda x: puzzle.neighbors(x, puzzle.ordinal_category)
+        
+        @@@ Fix this
+
+        for o in ordinals:
+            o_plus_delta = o + delta
+            o_minus_delta = o - delta
+            logger.info(f"++ {o=}, {o_plus_delta=}, {o_minus_delta}")
+            logger.debug(f"++ {min(ord_neighbors(self.lesser))=}")
+            logger.debug(f"++ {max(ord_neighbors(self.greater))=}")
+
+            if p not in ord_neighbors(self.lesser) and o_plus_delta in numeric:
+                logger.debug(f"+++ {p} not a neighbor of {self.lesser}, so {o_plus_delta} removed from {self.greater}")
+                puzzle.mark_false(self.greater, o_plus_delta)
+            if p not in ord_neighbors(self.greater) and o_minus_delta in numeric:
+                logger.debug(f"+++ {p} not a neighbor of {self.greater}, so {o_minus_delta} removed from {self.lesser}")
+                puzzle.mark_false(self.lesser, o_minus_delta)
+
+
+            if p < min(ord_neighbors(self.lesser)) + delta:
+                logger.info(f"++++ {p=} < {min(ord_neighbors(self.lesser)) + delta=}")
+                puzzle.mark_false(self.greater, p)
+            if p > max(ord_neighbors(self.greater)) - delta:
+                logger.info(f"++++ {p=} > {max(ord_neighbors(self.greater)) - delta=}")
+                puzzle.mark_false(self.lesser, p)
+            if delta > 0:
+                # if p - delta isn't in lesser, then p can't be in greater
+                if o_minus_delta in numeric and o_minus_delta not in ord_neighbors(self.lesser):
+                    logger.info(f"+++++ {o_minus_delta=} not in {self.lesser} - removing {p} from {self.greater}")
+                    puzzle.mark_false(self.greater, p)
+                # if p + delta isn't in greater, then p can't be in lesser
+                if o_plus_delta in numeric and o_plus_delta not in ord_neighbors(self.greater):
+                    logger.info(f"+++++ {o_plus_delta=} not in {self.greater} - removing {p} from {self.lesser}")
+                    puzzle.mark_false(self.lesser, p)
 
 class LogicPuzzle:
     def __init__(self, categories, ordinal_category):
@@ -351,22 +408,17 @@ def pairs(puzzle, pair1, pair2):
         assert len(pair) == 2
         assert len(other_pair) == 2
         others = set(pair).symmetric_difference(puzzle._items[p_type])
-        # print(f"{pair=}, {others=}")
         c, d = other_pair
         for o in others:
 
             o_adj = puzzle.neighbors(o)
-            if c not in o_adj and d not in o_adj:
-                continue
+            # Guards are here only to avoid the spammy print statements
             if o in puzzle.neighbors(c):
                 print(f"++ {pair[0]} & {pair[1]} are both {p_type}. {o} can't be {c}")
                 puzzle.mark_false(o, c)
             if o in puzzle.neighbors(d):
                 print(f"++ {pair[0]} & {pair[1]} are both {p_type}. {o} can't be {d}")
                 puzzle.mark_false(o, d)
-            # print(f"++ {pair[0]} & {pair[1]} are both {p_type}. {o} can't be {c} or {d}")
-            # puzzle.mark_false(o, c)
-            # puzzle.mark_false(o, d)
 
     p1a_type = puzzle._category(a)
     p1b_type = puzzle._category(b)
